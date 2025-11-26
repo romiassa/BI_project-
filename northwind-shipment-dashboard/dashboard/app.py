@@ -12,11 +12,11 @@ app.title = "Northwind - Ultimate Shipment Analytics Dashboard"
 
 # Load data with ERROR HANDLING
 def load_data():
-    conn = sqlite3.connect('data/warehouse/northwind_bi.db')
+    conn = sqlite3.connect('../data/warehouse/northwind_bi.db')
     
     # Load tables with error handling
     tables = {}
-    table_names = ['fact_orders', 'dim_employees', 'dim_customers', 'dim_time']
+    table_names = ['fact_orders', 'dim_employees', 'dim_customers', 'dim_time', 'dim_products']
     
     for table in table_names:
         try:
@@ -38,6 +38,18 @@ def load_data():
             ).merge(
                 tables['dim_time'], left_on='date_id', right_on='date_id', how='left'
             )
+            
+            # Add product data for 4D analysis
+            if not tables['dim_products'].empty and 'primary_category' in tables['fact_orders'].columns:
+                product_categories = tables['dim_products'][['CategoryName', 'price_range']].drop_duplicates()
+                merged_data = merged_data.merge(
+                    product_categories,
+                    left_on='primary_category', 
+                    right_on='CategoryName', 
+                    how='left',
+                    suffixes=('', '_product')
+                )
+            
             print("✅ Successfully merged all tables")
         except Exception as e:
             print(f"❌ Error merging tables: {e}")
@@ -50,11 +62,6 @@ def load_data():
 
 print("📊 Loading data...")
 data, fact_orders, dim_employees, dim_customers, dim_time = load_data()
-
-# Debug: Check available columns
-print("🔍 Available columns in data:")
-for col in data.columns:
-    print(f"   - {col}")
 
 # Calculate KPIs
 total_orders = len(fact_orders)
@@ -79,7 +86,7 @@ app.layout = dbc.Container([
         dbc.Col([dbc.Card([dbc.CardBody([html.H4("🏢 Customers", className="card-title"), html.H3(f"{len(dim_customers):,}", className="card-text text-success")])])], width=2),
     ], className="mb-4"),
     
-    # Tabs - ONLY SHOW WHAT WORKS
+    # Tabs - WITH 4D ANALYSIS
     dbc.Tabs([
         # TAB 1: 3D Analysis
         dbc.Tab([
@@ -105,7 +112,7 @@ app.layout = dbc.Container([
                     
                     html.Br(),
                     
-                    html.Label("�� Shipment Status:"), 
+                    html.Label("🚚 Shipment Status:"), 
                     dcc.Dropdown(
                         id='shipment-filter-3d', 
                         options=[
@@ -118,8 +125,7 @@ app.layout = dbc.Container([
                     
                     html.Br(),
                     
-                    # Only show region filter if column exists
-                    html.Label("🗺️ Employee Region:"), 
+                    html.Label("��️ Employee Region:"), 
                     dcc.Dropdown(
                         id='region-filter-3d', 
                         options=[{'label': 'All Regions', 'value': 'all'}] + [{'label': region, 'value': region} for region in sorted(data['work_regions'].unique()) if pd.notna(region)],
@@ -161,13 +167,101 @@ app.layout = dbc.Container([
                     dcc.Graph(id='3d-plot', style={'height': '700px'}),
                     html.Div([
                         html.H5("📊 Conclusion:", className="mt-3 text-warning"),
-                        html.P("3D visualization shows order distribution. Green=Shipped, Red=Not Shipped. Each point represents an order!", className="text-light")
+                        html.P("3D visualization shows order distribution. 🟢=Shipped, 🔴=Not Shipped. Each point represents an order!", className="text-light")
                     ])
                 ])], color="dark")], width=9),
             ]),
         ], label='🎯 3D Analysis'),
         
-        # TAB 2: Employee Analysis
+        # TAB 2: 4D Product Analysis
+        dbc.Tab([
+            dbc.Row([
+                dbc.Col([dbc.Card([dbc.CardBody([
+                    html.H4("📦 4D Product Analysis Filters", className="card-title"),
+                    
+                    html.Label("🏷️ Product Category:"), 
+                    dcc.Dropdown(
+                        id='product-category-filter-4d', 
+                        options=[{'label': 'All Categories', 'value': 'all'}] + 
+                                [{'label': cat, 'value': cat} for cat in sorted(data['CategoryName'].unique()) if pd.notna(cat)] 
+                        if 'CategoryName' in data.columns else [{'label': 'All Categories', 'value': 'all'}],
+                        value='all'
+                    ),
+                    
+                    html.Br(),
+                    
+                    html.Label("💰 Price Range:"), 
+                    dcc.Dropdown(
+                        id='product-price-filter-4d', 
+                        options=[
+                            {'label': 'All Prices', 'value': 'all'},
+                            {'label': 'Budget (< $10)', 'value': 'budget'},
+                            {'label': 'Economy ($10-$25)', 'value': 'economy'},
+                            {'label': 'Standard ($25-$50)', 'value': 'standard'},
+                            {'label': 'Premium ($50-$100)', 'value': 'premium'},
+                            {'label': 'Luxury (> $100)', 'value': 'luxury'}
+                        ],
+                        value='all'
+                    ),
+                    
+                    html.Br(),
+                    
+                    html.Label("📊 4th Dimension:"), 
+                    dcc.Dropdown(
+                        id='dimension-selector-4d', 
+                        options=[
+                            {'label': 'Product Category', 'value': 'CategoryName'},
+                            {'label': 'Price Range', 'value': 'price_range'},
+                            {'label': 'Shipment Status', 'value': 'is_shipped'}
+                        ],
+                        value='CategoryName'
+                    ),
+                    
+                    html.Br(),
+                    
+                    html.Label("👥 Employee (4D):"), 
+                    dcc.Dropdown(
+                        id='employee-filter-4d', 
+                        options=[{'label': 'All Employees', 'value': 'all'}] + [{'label': f"{emp}", 'value': emp} for emp in sorted(data['full_name'].unique()) if pd.notna(emp)], 
+                        value='all'
+                    ),
+                    
+                    html.Br(),
+                    
+                    html.Label("🏢 Customer (4D):"), 
+                    dcc.Dropdown(
+                        id='customer-filter-4d', 
+                        options=[{'label': 'All Customers', 'value': 'all'}] + [{'label': f"{cust}", 'value': cust} for cust in sorted(data['CompanyName'].unique()) if pd.notna(cust)], 
+                        value='all'
+                    ),
+                    
+                    html.Br(),
+                    
+                    html.Label("🚚 Shipment Status (4D):"), 
+                    dcc.Dropdown(
+                        id='shipment-filter-4d', 
+                        options=[
+                            {'label': 'All Orders', 'value': 'all'},
+                            {'label': '✅ Livrées Only', 'value': 'shipped'},
+                            {'label': '❌ Non Livrées Only', 'value': 'not_shipped'}
+                        ],
+                        value='all'
+                    ),
+                    
+                ])], color="secondary")], width=3),
+                
+                dbc.Col([dbc.Card([dbc.CardBody([
+                    html.H4("📦 4D Analysis: Time × Employee × Customer × Product", className="card-title text-center"),
+                    dcc.Graph(id='4d-product-plot', style={'height': '700px'}),
+                    html.Div([
+                        html.H5("📊 4D Conclusion:", className="mt-3 text-warning"),
+                        html.P("4D visualization adds PRODUCT dimension as color. Analyze patterns across product categories, price ranges, and shipment status!", className="text-light")
+                    ])
+                ])], color="dark")], width=9),
+            ]),
+        ], label='📦 4D Product Analysis'),
+        
+        # TAB 3: Employee Analysis
         dbc.Tab([
             dbc.Row([
                 dbc.Col([dbc.Card([dbc.CardBody([
@@ -203,14 +297,14 @@ app.layout = dbc.Container([
                     html.H4("🗺️ Employees by Region", className="card-title"),
                     dcc.Graph(id='employee-regions'),
                     html.Div([
-                        html.H5("📊 Conclusion:", className="mt-2 text-warning"),
+                        html.H5("�� Conclusion:", className="mt-2 text-warning"),
                         html.P("Regional performance differences exist", className="text-light")
                     ])
                 ])], color="dark")], width=6),
             ]),
-        ], label='👥 Employee Analysis'),
+        ], label='�� Employee Analysis'),
         
-        # TAB 3: Customer Analysis
+        # TAB 4: Customer Analysis
         dbc.Tab([
             dbc.Row([
                 dbc.Col([dbc.Card([dbc.CardBody([
@@ -253,7 +347,7 @@ app.layout = dbc.Container([
             ]),
         ], label='🏢 Customer Analysis'),
         
-        # TAB 4: Order Details
+        # TAB 5: Order Details
         dbc.Tab([
             dbc.Row([
                 dbc.Col([dbc.Card([dbc.CardBody([
@@ -311,6 +405,7 @@ app.layout = dbc.Container([
                             {"name": "Delay Days", "id": "shipping_delay_days"}
                         ] + ([
                             {"name": "Region", "id": "work_regions"},
+                            {"name": "Product Category", "id": "CategoryName"},
                         ] if 'work_regions' in data.columns else []),
                         page_size=20,
                         style_table={'overflowX': 'auto'},
@@ -322,13 +417,13 @@ app.layout = dbc.Container([
                     )
                 ])], color="dark")], width=12),
             ]),
-        ], label='�� Order Details'),
+        ], label='📋 Order Details'),
     ]),
 ], fluid=True, style={'padding': '20px'})
 
 # ========== CALLBACKS ==========
 
-# 3D Plot with ONLY EXISTING FILTERS
+# 3D Plot with FIXED GREEN and RED colors - COMPLETE INFORMATION
 @app.callback(
     Output('3d-plot', 'figure'),
     [Input('employee-filter-3d', 'value'),
@@ -385,34 +480,220 @@ def update_3d_plot(employee, customer, shipment_status, region, time_range, valu
         )
         return fig
     
-    # Create 3D scatter plot with error handling
+    # Create 3D scatter plot with FIXED GREEN and RED colors - COMPLETE INFORMATION
     try:
-        fig = px.scatter_3d(
-            filtered_data, 
-            x='year_month' if 'year_month' in filtered_data.columns else filtered_data.index, 
-            y='full_name', 
-            z='CompanyName',
-            color='is_shipped',
-            color_discrete_map={True: '#00ff00', False: '#ff0000'},
-            size='total_amount' if 'total_amount' in filtered_data.columns else None,
-            size_max=20,
-            hover_data={
-                'order_id': True, 
-                'total_amount': ':.2f' if 'total_amount' in filtered_data.columns else False, 
-                'shipping_delay_days': True if 'shipping_delay_days' in filtered_data.columns else False,
-                'work_regions': True if 'work_regions' in filtered_data.columns else False,
-                'OrderDate': True,
-                'full_name': False,
-                'CompanyName': False,
-                'year_month': False
-            },
-            title="3D Analysis: Time (X) × Employee (Y) × Customer (Z)"
+        # Create separate DataFrames for shipped and not shipped
+        shipped_data = filtered_data[filtered_data['is_shipped'] == True]
+        not_shipped_data = filtered_data[filtered_data['is_shipped'] == False]
+        
+        fig = go.Figure()
+        
+        # Add shipped orders in GREEN
+        if len(shipped_data) > 0:
+            fig.add_trace(go.Scatter3d(
+                x=shipped_data['year_month'] if 'year_month' in shipped_data.columns else shipped_data.index,
+                y=shipped_data['full_name'],
+                z=shipped_data['CompanyName'],
+                mode='markers',
+                marker=dict(
+                    size=shipped_data['total_amount']/50 if 'total_amount' in shipped_data.columns else 10,
+                    color='#00ff00',  # GREEN
+                    opacity=0.8
+                ),
+                name='🟢 Shipped',
+                text=[f"""
+                📦 <b>ORDER DETAILS</b><br>
+                ──────────────<br>
+                🆔 <b>Order ID:</b> {row['order_id']}<br>
+                💰 <b>Amount:</b> ${row['total_amount']:.2f}<br>
+                👥 <b>Employee:</b> {row['full_name']}<br>
+                🏢 <b>Customer:</b> {row['CompanyName']}<br>
+                📅 <b>Order Date:</b> {row['OrderDate']}<br>
+                🚚 <b>Shipped:</b> ✅ YES (1)<br>
+                ⏱️ <b>Shipping Delay:</b> {row['shipping_delay_days'] if pd.notna(row['shipping_delay_days']) else 'N/A'} days<br>
+                🗺️ <b>Region:</b> {row['work_regions'] if pd.notna(row['work_regions']) else 'N/A'}<br>
+                📦 <b>Product Category:</b> {row['CategoryName'] if pd.notna(row['CategoryName']) else 'N/A'}<br>
+                💵 <b>Price Range:</b> {row['price_range'] if pd.notna(row['price_range']) else 'N/A'}<br>
+                📊 <b>Month:</b> {row['year_month'] if pd.notna(row['year_month']) else 'N/A'}
+                """ for _, row in shipped_data.iterrows()],
+                hoverinfo='text',
+                hovertemplate='%{text}<extra></extra>'
+            ))
+        
+        # Add not shipped orders in RED
+        if len(not_shipped_data) > 0:
+            fig.add_trace(go.Scatter3d(
+                x=not_shipped_data['year_month'] if 'year_month' in not_shipped_data.columns else not_shipped_data.index,
+                y=not_shipped_data['full_name'],
+                z=not_shipped_data['CompanyName'],
+                mode='markers',
+                marker=dict(
+                    size=not_shipped_data['total_amount']/50 if 'total_amount' in not_shipped_data.columns else 10,
+                    color='#ff0000',  # RED
+                    opacity=0.8
+                ),
+                name='🔴 Not Shipped',
+                text=[f"""
+                📦 <b>ORDER DETAILS</b><br>
+                ──────────────<br>
+                🆔 <b>Order ID:</b> {row['order_id']}<br>
+                💰 <b>Amount:</b> ${row['total_amount']:.2f}<br>
+                👥 <b>Employee:</b> {row['full_name']}<br>
+                🏢 <b>Customer:</b> {row['CompanyName']}<br>
+                📅 <b>Order Date:</b> {row['OrderDate']}<br>
+                🚚 <b>Shipped:</b> ❌ NO (0)<br>
+                ⏱️ <b>Shipping Delay:</b> {row['shipping_delay_days'] if pd.notna(row['shipping_delay_days']) else 'N/A'} days<br>
+                🗺️ <b>Region:</b> {row['work_regions'] if pd.notna(row['work_regions']) else 'N/A'}<br>
+                📦 <b>Product Category:</b> {row['CategoryName'] if pd.notna(row['CategoryName']) else 'N/A'}<br>
+                💵 <b>Price Range:</b> {row['price_range'] if pd.notna(row['price_range']) else 'N/A'}<br>
+                📊 <b>Month:</b> {row['year_month'] if pd.notna(row['year_month']) else 'N/A'}
+                """ for _, row in not_shipped_data.iterrows()],
+                hoverinfo='text',
+                hovertemplate='%{text}<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title="3D Analysis: Time × Employee × Customer - 🟢=Shipped ��=Not Shipped",
+            scene=dict(
+                xaxis=dict(title='<b>TIME</b> 📅', backgroundcolor="black", gridcolor="gray"),
+                yaxis=dict(title='<b>EMPLOYEE</b> 👥', backgroundcolor="black", gridcolor="gray"),
+                zaxis=dict(title='<b>CUSTOMER</b> 🏢', backgroundcolor="black", gridcolor="gray"),
+                bgcolor='black'
+            ),
+            paper_bgcolor='black',
+            font=dict(color='white', size=12),
+            height=700,
+            margin=dict(l=0, r=0, b=0, t=50),
+            legend=dict(
+                title="Shipment Status",
+                bgcolor='rgba(0,0,0,0.8)',
+                bordercolor='gray',
+                borderwidth=1
+            )
         )
+        
     except Exception as e:
         print(f"❌ Error creating 3D plot: {e}")
         fig = go.Figure()
         fig.update_layout(
             title="Error creating 3D visualization",
+            paper_bgcolor='black',
+            plot_bgcolor='black',
+            font=dict(color='white')
+        )
+        return fig
+    
+    return fig
+
+# 4D Product Analysis Callback
+@app.callback(
+    Output('4d-product-plot', 'figure'),
+    [Input('product-category-filter-4d', 'value'),
+     Input('product-price-filter-4d', 'value'),
+     Input('dimension-selector-4d', 'value'),
+     Input('employee-filter-4d', 'value'),
+     Input('customer-filter-4d', 'value'),
+     Input('shipment-filter-4d', 'value')]
+)
+def update_4d_product_plot(category_filter, price_filter, dimension, employee, customer, shipment_status):
+    filtered_data = data.copy()
+    
+    # Apply 4D filters
+    try:
+        if category_filter != 'all' and 'CategoryName' in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data['CategoryName'] == category_filter]
+        
+        if price_filter != 'all' and 'price_range' in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data['price_range'] == price_filter.capitalize()]
+        
+        if employee != 'all': 
+            filtered_data = filtered_data[filtered_data['full_name'] == employee]
+        
+        if customer != 'all': 
+            filtered_data = filtered_data[filtered_data['CompanyName'] == customer]
+            
+        if shipment_status == 'shipped': 
+            filtered_data = filtered_data[filtered_data['is_shipped'] == True]
+        elif shipment_status == 'not_shipped': 
+            filtered_data = filtered_data[filtered_data['is_shipped'] == False]
+            
+    except Exception as e:
+        print(f"❌ Error in 4D filtering: {e}")
+    
+    if len(filtered_data) == 0:
+        fig = go.Figure()
+        fig.update_layout(
+            title="No data available for selected 4D filters",
+            paper_bgcolor='black',
+            plot_bgcolor='black',
+            font=dict(color='white')
+        )
+        return fig
+    
+    # Create 4D scatter plot (3D + color dimension) with COMPLETE INFORMATION
+    try:
+        # Handle color mapping for shipment status
+        color_discrete_map = None
+        if dimension == 'is_shipped':
+            filtered_data['is_shipped_display'] = filtered_data['is_shipped'].map({True: 'Shipped', False: 'Not Shipped'})
+            color_discrete_map = {'Shipped': '#00ff00', 'Not Shipped': '#ff0000'}  # GREEN/RED for shipment status
+            color_column = 'is_shipped_display'
+        else:
+            color_column = dimension if dimension in filtered_data.columns else 'CategoryName'
+        
+        fig = px.scatter_3d(
+            filtered_data, 
+            x='year_month' if 'year_month' in filtered_data.columns else filtered_data.index, 
+            y='full_name', 
+            z='CompanyName',
+            color=color_column,
+            color_discrete_map=color_discrete_map,
+            size='total_amount' if 'total_amount' in filtered_data.columns else None,
+            size_max=20,
+            hover_data={
+                'order_id': True, 
+                'total_amount': ':.2f',
+                'full_name': True,
+                'CompanyName': True,
+                'OrderDate': True,
+                'is_shipped': True,
+                'shipping_delay_days': True,
+                'work_regions': True,
+                'CategoryName': True,
+                'price_range': True,
+                'primary_category': True,
+                'year_month': True
+            },
+            title=f"4D Analysis: Time × Employee × Customer × {dimension.replace('_', ' ').title()}"
+        )
+        
+        # Update hover template for complete information
+        fig.update_traces(
+            hovertemplate="""<b>📦 ORDER DETAILS</b><br>
+            ──────────────<br>
+            🆔 <b>Order ID:</b> %{customdata[0]}<br>
+            💰 <b>Amount:</b> $%{customdata[1]:.2f}<br>
+            👥 <b>Employee:</b> %{customdata[2]}<br>
+            🏢 <b>Customer:</b> %{customdata[3]}<br>
+            📅 <b>Order Date:</b> %{customdata[4]}<br>
+            🚚 <b>Shipped:</b> %{customdata[5]}<br>
+            ⏱️ <b>Shipping Delay:</b> %{customdata[6]} days<br>
+            🗺️ <b>Region:</b> %{customdata[7]}<br>
+            📦 <b>Product Category:</b> %{customdata[8]}<br>
+            💵 <b>Price Range:</b> %{customdata[9]}<br>
+            📊 <b>Month:</b> %{customdata[11]}<br>
+            <extra></extra>"""
+        )
+        
+        # Update legend for shipment status
+        if dimension == 'is_shipped':
+            fig.for_each_trace(lambda t: t.update(name='🟢 Shipped' if t.name == 'Shipped' else '🔴 Not Shipped'))
+            
+    except Exception as e:
+        print(f"❌ Error creating 4D plot: {e}")
+        fig = go.Figure()
+        fig.update_layout(
+            title="Error creating 4D visualization",
             paper_bgcolor='black',
             plot_bgcolor='black',
             font=dict(color='white')
@@ -450,6 +731,7 @@ def update_3d_plot(employee, customer, shipment_status, region, time_range, valu
     
     return fig
 
+# [KEEP ALL THE OTHER CALLBACKS EXACTLY THE SAME AS BEFORE]
 # Employee Analysis Callbacks
 @app.callback(Output('employee-shipped-vs-not', 'figure'), [Input('employee-filter-3d', 'value')])
 def update_employee_shipped_vs_not(employee):
@@ -707,7 +989,7 @@ def update_orders_table(search_term, status_filter, employee_filter, customer_fi
     
     # Select columns that exist
     base_columns = ['order_id', 'CompanyName', 'full_name', 'OrderDate', 'is_shipped']
-    optional_columns = ['total_amount', 'shipping_delay_days', 'work_regions']
+    optional_columns = ['total_amount', 'shipping_delay_days', 'work_regions', 'CategoryName']
     
     available_columns = base_columns + [col for col in optional_columns if col in filtered_data.columns]
     
@@ -718,8 +1000,10 @@ def update_orders_table(search_term, status_filter, employee_filter, customer_fi
     return display_data.to_dict('records')
 
 if __name__ == '__main__':
-    print("🚀 Starting ULTIMATE DASHBOARD at: http://localhost:8050")
-    print("✅ FIXED: No more country-filter-3d errors!")
-    print("✅ FIXED: No more 4D tab issues!")
-    print("✅ WORKING: 3D visualization with your actual data!")
+    print("🚀 Starting COMPLETE DASHBOARD at: http://localhost:8050")
+    print("✅ FIXED: 3D Colors are now PROPERLY GREEN and RED!")
+    print("✅ ADDED: COMPLETE INFORMATION in hover tooltips!")
+    print("✅ INCLUDED: All Employee Analysis charts!")
+    print("✅ INCLUDED: All Customer Analysis charts!")
+    print("✅ INCLUDED: Advanced Order Explorer with search!")
     app.run(debug=True, host='0.0.0.0', port=8050)

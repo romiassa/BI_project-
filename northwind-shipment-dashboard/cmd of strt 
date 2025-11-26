@@ -1,0 +1,4 @@
+cd ~/BI_project-/northwind-shipment-dashboard
+source venv/bin/activate
+cd dashboard
+python app.py
