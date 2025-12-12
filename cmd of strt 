@@ -1,0 +1,12 @@
+# Go back to project root 
+cd ~/projet/BI_project/northwind-shipment-dashboard
+
+# Activate venv
+source venv/bin/activate
+
+# Install missing dashboard packages
+pip install dash-bootstrap-components plotly pandas numpy
+
+# Go to dashboard 
+cd dashboard
+python app.py
